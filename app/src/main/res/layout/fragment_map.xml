@@ -144,20 +144,34 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="60dp"
+        android:layout_marginTop="128dp"
         android:layout_marginEnd="16dp"
         app:cardCornerRadius="12dp"
         app:cardElevation="6dp"
         android:visibility="gone">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvSearchResults"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:orientation="vertical"
-            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+            android:orientation="vertical">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvSearchResults"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:orientation="vertical"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+            <!-- 上拉收起把手 -->
+            <View
+                android:id="@+id/dragHandle"
+                android:layout_width="match_parent"
+                android:layout_height="24dp"
+                android:background="@drawable/bg_search_results_handle" />
+
+        </LinearLayout>
     </androidx.cardview.widget.CardView>
 
     <!-- Horizontal filter tags -->
@@ -165,7 +179,7 @@
         android:id="@+id/rvFilterTags"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:layout_marginTop="68dp"
+        android:layout_marginTop="120dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:clipToPadding="false"
@@ -208,8 +222,7 @@
         android:id="@+id/panelWalkNav"
         layout="@layout/panel_walk_navigation"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom" />
+        android:layout_height="wrap_content" />
 
     <!-- BottomSheet -->
     <FrameLayout

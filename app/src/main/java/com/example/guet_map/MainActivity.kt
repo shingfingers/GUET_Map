@@ -52,6 +52,12 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(context, "正在导航到目标教室", Toast.LENGTH_SHORT).show()
                     }
                 }
+                FloatingWindowService.ACTION_AI_NAVIGATE -> {
+                    val targetName = intent.getStringExtra(FloatingWindowService.EXTRA_TARGET_NAME)
+                    val fallbackQuery = intent.getStringExtra(FloatingWindowService.EXTRA_FALLBACK_QUERY)
+                    val locationId = intent.getStringExtra(FloatingWindowService.EXTRA_LOCATION_ID)
+                    handleNavigateTo(targetName, locationId, fallbackQuery)
+                }
             }
         }
     }
@@ -72,14 +78,20 @@ class MainActivity : AppCompatActivity() {
         setupAiActionListener()
         registerFloatingWindowReceiver()
 
-        // 处理从悬浮球打开 AI 聊天
-        if (intent.getBooleanExtra("open_ai_chat", false)) {
-            lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    mainNavViewModel.requestTab(R.id.nav_notifications)
-                }
-            }
-        }
+        // 处理 AI 导航 intent
+        handleNavigationIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleNavigationIntent(intent)
+    }
+
+    private fun handleNavigationIntent(intent: Intent) {
+        val targetName = intent.getStringExtra("ai_nav_target_name") ?: return
+        val locationId = intent.getStringExtra("ai_nav_location_id")
+        val fallbackQuery = intent.getStringExtra("ai_nav_fallback_query")
+        handleNavigateTo(targetName, locationId, fallbackQuery)
     }
 
     private fun setupNavigation() {
@@ -202,6 +214,7 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter().apply {
             addAction(FloatingWindowService.ACTION_OPEN_TIMETABLE_IMPORT)
             addAction(FloatingWindowService.ACTION_TIMETABLE_NAVIGATE)
+            addAction(FloatingWindowService.ACTION_AI_NAVIGATE)
         }
         registerReceiver(floatingWindowReceiver, filter, RECEIVER_NOT_EXPORTED)
     }

@@ -16,13 +16,15 @@ val isLinux = osName.startsWith("linux") || osName.contains("unix")
 val jdkHome = when {
     isWindows -> {
         val windowsPaths = listOf(
-            "C:/Program Files/Eclipse Adoptium/jdk-21.0.7.6-hotspot",
-            "C:/Program Files/Java/jdk-21",
-            "C:/Program Files/Microsoft/jdk-21.0.3-hotspot",
-            "${System.getProperty("user.home")}/AppData/Local/Programs/Eclipse Adoptium/jdk-21.0.7.6-hotspot"
+            "${System.getProperty("user.home")}/.gradle/jdks/eclipse_adoptium-21-amd64-windows.2",
+            "${System.getProperty("user.home")}/.jdks/openjdk-24.0.1",
+            "C:/Program Files (x86)/Eclipse Adoptium/jdk-17.0.15.6-hotspot",
+            "C:/Program Files/Java/jdk-19",
+            "C:/Program Files/Java/jdk-1.8",
+            "C:/Program Files/Eclipse Adoptium/jdk-21.0.7.6-hotspot"
         )
         windowsPaths.firstOrNull { java.io.File(it).exists() }
-            ?: "C:/Program Files/Eclipse Adoptium/jdk-21.0.7.6-hotspot"
+            ?: "${System.getProperty("user.home")}/.gradle/jdks/eclipse_adoptium-21-amd64-windows.2"
     }
     isMac -> {
         val macPaths = listOf(

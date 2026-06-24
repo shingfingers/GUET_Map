@@ -25,38 +25,59 @@ class NotificationRepository @Inject constructor(
 
     fun observeUnreadCount(): Flow<Int> = notificationDao.observeUnreadCount(currentUserId)
 
+    suspend fun seedMockIfEmpty() {
+        val count = notificationDao.countByUserId(currentUserId)
+        if (count > 0) return
+        notificationDao.insertAll(
+            listOf(
+                NotificationEntity(
+                    id = 1, type = "review", title = "指引审核通过",
+                    body = "您提交的「第十一教学楼A区」步骤已通过，+5积分",
+                    locationId = null, isRead = false,
+                    createdAt = "2026-06-02T10:00:00", userId = currentUserId
+                ),
+                NotificationEntity(
+                    id = 2, type = "points", title = "积分到账",
+                    body = "您的校园贡献积分已更新为 15",
+                    locationId = null, isRead = false,
+                    createdAt = "2026-06-01T18:30:00", userId = currentUserId
+                ),
+                NotificationEntity(
+                    id = 3, type = "announcement", title = "欢迎使用 GUET Map",
+                    body = "花江校区实景导航已上线，欢迎贡献指路！",
+                    locationId = null, isRead = true,
+                    createdAt = "2026-05-30T09:00:00", userId = currentUserId
+                )
+            )
+        )
+    }
+
     suspend fun refresh() {
-        if (!userPrefs.isLoggedIn) return
-        
         try {
             val remote = apiService.getNotifications()
             notificationDao.deleteAllForUser(currentUserId)
             notificationDao.insertAll(remote.map { it.toEntity() })
         } catch (_: Exception) {
-            // 使用缓存
+            // 使用缓存; seedMockIfEmpty 已提供兜底数据
         }
     }
 
     suspend fun markAllRead() {
         notificationDao.markAllRead(currentUserId)
-        // 同步到服务器
         if (userPrefs.isLoggedIn) {
             try {
                 apiService.markAllNotificationsRead()
             } catch (_: Exception) {
-                // 忽略错误，本地已更新
             }
         }
     }
 
     suspend fun markRead(id: Long) {
         notificationDao.markRead(id, currentUserId)
-        // 同步到服务器
         if (userPrefs.isLoggedIn) {
             try {
                 apiService.markNotificationRead(id)
             } catch (_: Exception) {
-                // 忽略错误，本地已更新
             }
         }
     }

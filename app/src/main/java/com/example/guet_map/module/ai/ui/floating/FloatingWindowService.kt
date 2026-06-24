@@ -152,9 +152,13 @@ class FloatingWindowService : Service(), LifecycleOwner {
     }
 
     private fun startFloatingWindow() {
-        if (floatingView != null) return
-
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+        // 如果视图已存在（服务被重新触发），重置到可见的默认位置
+        if (floatingView != null) {
+            resetToDefaultPosition()
+            return
+        }
 
         // 使用 ContextThemeWrapper 确保 Material 主题可用（修复 MaterialButton 崩溃）
         _binding = LayoutFloatingWindowBinding.inflate(
@@ -205,6 +209,26 @@ class FloatingWindowService : Service(), LifecycleOwner {
             Toast.makeText(this, "无法创建悬浮窗: ${e.message}", Toast.LENGTH_LONG).show()
             stopSelf()
         }
+    }
+
+    /** 重置悬浮窗到默认可见位置（修复拖出屏幕后找不回来的问题） */
+    private fun resetToDefaultPosition() {
+        if (!isExpanded) {
+            expandFromEdge()
+        }
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+        floatingParams?.let { params ->
+            params.width = dpToPx(expandedWidthDp)
+            params.height = dpToPx(expandedHeightDp)
+            params.x = screenWidth - params.width - dpToPx(16)
+            params.y = screenHeight / 3
+            windowManager?.updateViewLayout(floatingView, params)
+        }
+        isExpanded = true
+        binding.mainCardContent.visibility = View.VISIBLE
+        binding.root.setBackgroundColor(0x00000000)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -287,12 +311,11 @@ class FloatingWindowService : Service(), LifecycleOwner {
                         floatingParams?.let { params ->
                             val displayMetrics = resources.displayMetrics
                             val screenWidth = displayMetrics.widthPixels
-                            // x 坐标：gravity=END(右对齐)，params.x 是距离屏幕右边缘
-                            // rawX 是距离屏幕左边缘，需要转换
                             val currentRightEdge = screenWidth - params.x
                             val newRightEdge = (currentRightEdge + event.rawX - initialTouchX).toInt()
                             params.x = screenWidth - newRightEdge
                             params.y = initialY + (event.rawY - initialTouchY).toInt()
+                            clampPosition(params)
                             windowManager?.updateViewLayout(floatingView, params)
                         }
                     }
@@ -304,6 +327,9 @@ class FloatingWindowService : Service(), LifecycleOwner {
                             if (v == binding.titleBar) {
                                 binding.mainCard.performClick()
                             }
+                        } else {
+                            floatingParams?.let { clampPosition(it) }
+                            windowManager?.updateViewLayout(floatingView, floatingParams)
                         }
                         isDragging = false
                         activeTouchListener = null
@@ -349,6 +375,7 @@ class FloatingWindowService : Service(), LifecycleOwner {
                                 val newRightEdge = (currentRightEdge + event.rawX - initialTouchX).toInt()
                                 params.x = screenWidth - newRightEdge
                                 params.y = initialY + (event.rawY - initialTouchY).toInt()
+                                clampPosition(params)
                                 windowManager?.updateViewLayout(floatingView, params)
                             }
                         }
@@ -357,7 +384,10 @@ class FloatingWindowService : Service(), LifecycleOwner {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (activeTouchListener == touchListener) {
-                        if (!isDragging) {
+                        if (isDragging) {
+                            // 拖拽结束：吸附到最近边缘
+                            snapToNearestEdge()
+                        } else {
                             expandFromEdge()
                         }
                         isDragging = false
@@ -635,9 +665,8 @@ class FloatingWindowService : Service(), LifecycleOwner {
             _isLoading.value = true
 
             try {
-                val result = aiService.sendMessage(sessionId, content)
-                when (result) {
-                    is Resource.Success -> { /* AI 回复由 Flow 自动同步 */ }
+                when (val result = aiService.sendStructuredMessage(sessionId, content)) {
+                    is Resource.Success -> handleAiResponse(result.data)
                     is Resource.Error -> {
                         _events.emit(ChatUiEvent.ShowMessage("发送失败: ${result.message}"))
                     }
@@ -651,14 +680,47 @@ class FloatingWindowService : Service(), LifecycleOwner {
         }
     }
 
+    private suspend fun handleAiResponse(response: com.example.guet_map.module.ai.data.model.AiResponse) {
+        val action = response.action
+        if (response.responseType == com.example.guet_map.module.ai.data.model.AiResponse.ResponseType.CHAT || action == null) {
+            response.text?.takeIf { it.isNotBlank() }?.let {
+                _events.emit(ChatUiEvent.ShowMessage(it))
+            }
+            return
+        }
+
+        when (action.action) {
+            com.example.guet_map.module.ai.data.model.AiAction.ActionType.NAVIGATE_TO -> {
+                _events.emit(
+                    ChatUiEvent.NavigateTo(
+                        targetName = action.payload["targetName"]?.toString(),
+                        targetLocationId = action.payload["targetLocationId"]?.toString(),
+                        fallbackQuery = action.payload["fallbackQuery"]?.toString(),
+                        mode = action.payload["mode"]?.toString() ?: "walking"
+                    )
+                )
+            }
+            else -> {
+                response.text?.takeIf { it.isNotBlank() }?.let {
+                    _events.emit(ChatUiEvent.ShowMessage(it))
+                }
+            }
+        }
+    }
+
     private fun handleEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.NavigateTo -> {
-                Toast.makeText(
-                    this,
-                    "准备导航到：${event.targetName ?: event.fallbackQuery ?: "目标地点"}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                val query = event.targetName ?: event.fallbackQuery ?: "目标地点"
+                Toast.makeText(this, "准备导航到：$query", Toast.LENGTH_SHORT).show()
+                // 通过启动 MainActivity 携带导航数据（比广播更可靠）
+                val navIntent = Intent(this, com.example.guet_map.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra("ai_nav_target_name", event.targetName)
+                    putExtra("ai_nav_location_id", event.targetLocationId)
+                    putExtra("ai_nav_fallback_query", event.fallbackQuery)
+                }
+                startActivity(navIntent)
             }
             is ChatUiEvent.ShowRoute -> {
                 Toast.makeText(this, event.summary, Toast.LENGTH_SHORT).show()
@@ -703,6 +765,58 @@ class FloatingWindowService : Service(), LifecycleOwner {
         sendBroadcast(intent)
     }
 
+    /** 限制悬浮窗位置不超出屏幕边界 */
+    private fun clampPosition(params: WindowManager.LayoutParams) {
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+        val statusBarHeight = getStatusBarHeight()
+
+        // x: 距离右边缘 (gravity=END)，合法范围 [0, screenWidth - width]
+        params.x = params.x.coerceIn(0, screenWidth - params.width)
+        // y: 距离顶部 (gravity=TOP)，合法范围 [statusBarHeight, screenHeight - params.height]
+        params.y = params.y.coerceIn(statusBarHeight, screenHeight - params.height - dpToPx(16))
+    }
+
+    /** 拖拽结束后吸附到最近边缘 */
+    private fun snapToNearestEdge() {
+        val params = floatingParams ?: return
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val statusBarHeight = getStatusBarHeight()
+
+        // 判断吸附到左还是右：当前窗口中心点位于屏幕左侧还是右侧
+        val viewLeftEdge = screenWidth - params.x - params.width
+        val viewCenterX = viewLeftEdge + params.width / 2
+        val targetSide = if (viewCenterX < screenWidth / 2) Gravity.START else Gravity.END
+
+        pinnedSide = targetSide
+
+        val targetX = if (targetSide == Gravity.END) {
+            screenWidth - params.width - dpToPx(4)
+        } else {
+            dpToPx(4) - params.width
+        }
+
+        params.y = params.y.coerceIn(statusBarHeight, displayMetrics.heightPixels - params.height - dpToPx(16))
+
+        animateWindowResize(
+            toWidth = params.width,
+            toHeight = params.height,
+            toX = targetX,
+            toY = params.y
+        )
+    }
+
+    private fun getStatusBarHeight(): Int {
+        var result = 0
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        if (resourceId > 0) {
+            result = resources.getDimensionPixelSize(resourceId)
+        }
+        return result
+    }
+
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
     }
@@ -730,7 +844,10 @@ class FloatingWindowService : Service(), LifecycleOwner {
         private const val KEY_SESSION_ID = "chat_session_id"
         const val ACTION_OPEN_TIMETABLE_IMPORT = "com.example.guet_map.ACTION_OPEN_TIMETABLE_IMPORT"
         const val ACTION_TIMETABLE_NAVIGATE = "com.example.guet_map.ACTION_TIMETABLE_NAVIGATE"
+        const val ACTION_AI_NAVIGATE = "com.example.guet_map.ACTION_AI_NAVIGATE"
         const val EXTRA_LOCATION_ID = "extra_location_id"
+        const val EXTRA_TARGET_NAME = "extra_target_name"
+        const val EXTRA_FALLBACK_QUERY = "extra_fallback_query"
 
         fun start(context: Context) {
             val intent = Intent(context, FloatingWindowService::class.java)

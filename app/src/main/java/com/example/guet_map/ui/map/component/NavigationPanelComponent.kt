@@ -1,13 +1,15 @@
 package com.example.guet_map.ui.map.component
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
-import androidx.cardview.widget.CardView
+import android.widget.FrameLayout
 import com.example.guet_map.R
 import com.example.guet_map.databinding.LayoutNavigationPanelBinding
 import com.example.guet_map.model.Location
@@ -15,7 +17,7 @@ import com.example.guet_map.model.WalkRouteInfo
 
 /**
  * 导航面板组件
- * 负责：导航面板显示、路线信息展示、外部导航跳转
+ * 负责：导航面板显示、路线信息展示、外部导航跳转、上拉收起
  */
 class NavigationPanelComponent(
     private val context: Context,
@@ -27,6 +29,12 @@ class NavigationPanelComponent(
 
     var onCloseNavigation: (() -> Unit)? = null
     var onStartNavigation: ((Location) -> Unit)? = null
+
+    // 上拉收起
+    private var dragStartY = 0f
+    private var cardStartTranslationY = 0f
+    private var isDraggingHandle = false
+    private val dismissThreshold = 150f
 
     init {
         inflate()
@@ -41,6 +49,7 @@ class NavigationPanelComponent(
         binding = navPanelView
         parent.addView(navPanelView.root)
         setupClickListeners()
+        setupDragHandle()
     }
 
     private fun setupClickListeners() {
@@ -50,21 +59,100 @@ class NavigationPanelComponent(
         }
     }
 
+    private fun setupDragHandle() {
+        binding?.dragHandle?.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragStartY = event.rawY
+                    cardStartTranslationY = binding?.cardNavigationPanel?.translationY ?: 0f
+                    isDraggingHandle = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDraggingHandle) return@setOnTouchListener true
+                    val deltaY = event.rawY - dragStartY
+                    if (deltaY < 0) {
+                        binding?.cardNavigationPanel?.translationY = deltaY
+                        binding?.cardNavigationPanel?.alpha =
+                            (1f - kotlin.math.abs(deltaY) / dismissThreshold).coerceIn(0f, 1f)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isDraggingHandle = false
+                    val translationY = binding?.cardNavigationPanel?.translationY ?: 0f
+                    if (kotlin.math.abs(translationY) > dismissThreshold) {
+                        animateDismiss()
+                    } else {
+                        animateReset()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun animateDismiss() {
+        val card = binding?.cardNavigationPanel ?: return
+        val currentY = card.translationY
+        val targetY = -card.height.toFloat()
+        ValueAnimator.ofFloat(currentY, targetY).apply {
+            duration = 200
+            addUpdateListener { animator ->
+                card.translationY = animator.animatedValue as Float
+                card.alpha = 1f - kotlin.math.abs(animator.animatedValue as Float) / kotlin.math.abs(targetY)
+            }
+            start()
+        }
+        card.postDelayed({
+            hide()
+            onCloseNavigation?.invoke()
+        }, 200)
+    }
+
+    private fun animateReset() {
+        val card = binding?.cardNavigationPanel ?: return
+        ValueAnimator.ofFloat(card.translationY, 0f).apply {
+            duration = 200
+            addUpdateListener { animator ->
+                card.translationY = animator.animatedValue as Float
+                card.alpha = 1f
+            }
+            start()
+        }
+    }
+
     /**
-     * 显示导航面板
+     * 显示导航面板，可选设置顶部边距（放在搜索栏下方）
      */
-    fun show(target: Location, route: WalkRouteInfo? = null) {
+    fun show(target: Location, route: WalkRouteInfo? = null, topMargin: Int = 0, currentLocText: String? = null) {
         currentTarget = target
         currentRoute = route
 
         binding?.apply {
             cardNavigationPanel.visibility = View.VISIBLE
+            cardNavigationPanel.translationY = 0f
+            cardNavigationPanel.alpha = 1f
+            if (topMargin > 0) {
+                val params = cardNavigationPanel.layoutParams as? FrameLayout.LayoutParams
+                    ?: FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                params.topMargin = topMargin
+                params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                cardNavigationPanel.layoutParams = params
+            }
+            if (currentLocText != null) {
+                tvCurrentLocation.text = currentLocText
+            }
+            if (route != null) {
+                updateRoute(route)
+            }
         }
     }
 
-    /**
-     * 更新路线信息
-     */
     fun updateRoute(route: WalkRouteInfo) {
         currentRoute = route
         binding?.apply {
@@ -75,9 +163,7 @@ class NavigationPanelComponent(
             }
             val unitText = if (route.distanceMeters >= 1000) "公里" else "米"
 
-            // tvRouteDistance 显示距离（不包含单位）
             tvRouteDistance.text = distanceText
-            // 下方单位显示公里或米
             tvRouteDuration.text = unitText
 
             val minutes = (route.durationSeconds / 60).coerceAtLeast(1)
@@ -85,33 +171,34 @@ class NavigationPanelComponent(
         }
     }
 
-    /**
-     * 显示加载中
-     */
-    fun showLoading() {
+    fun showLoading(topMargin: Int = 0) {
         binding?.apply {
+            cardNavigationPanel.visibility = View.VISIBLE
+            cardNavigationPanel.translationY = 0f
+            cardNavigationPanel.alpha = 1f
+            if (topMargin > 0) {
+                val params = cardNavigationPanel.layoutParams as? FrameLayout.LayoutParams
+                    ?: FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                params.topMargin = topMargin
+                params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                cardNavigationPanel.layoutParams = params
+            }
             tvNextStep.text = context.getString(R.string.route_planning)
         }
     }
 
-    /**
-     * 隐藏导航面板
-     */
     fun hide() {
         binding?.cardNavigationPanel?.visibility = View.GONE
         currentRoute = null
         currentTarget = null
     }
 
-    /**
-     * 是否正在显示
-     */
     fun isShowing(): Boolean =
         binding?.cardNavigationPanel?.visibility == View.VISIBLE
 
-    /**
-     * 打开外部导航（高德地图）
-     */
     fun openExternalNavigation(target: Location) {
         val uriBuilder = StringBuilder("androidamap://route/plan/?")
         uriBuilder.append("dlat=${target.latitude}&dlon=${target.longitude}")
@@ -125,7 +212,6 @@ class NavigationPanelComponent(
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
-            // 高德未安装，尝试通用 geo 协议
             openGenericMap(target)
         }
     }
@@ -139,7 +225,6 @@ class NavigationPanelComponent(
         if (geoIntent.resolveActivity(context.packageManager) != null) {
             context.startActivity(Intent.createChooser(geoIntent, context.getString(R.string.nav_amap_app)))
         } else {
-            // 最后备选：复制坐标
             copyToClipboard(target)
         }
     }
@@ -158,9 +243,6 @@ class NavigationPanelComponent(
         ).show()
     }
 
-    /**
-     * 释放资源
-     */
     fun destroy() {
         parent.removeView(binding?.root)
         binding = null

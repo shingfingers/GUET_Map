@@ -30,6 +30,7 @@ class NotificationsViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
+            notificationRepository.seedMockIfEmpty()
             notificationRepository.refresh()
         }
     }

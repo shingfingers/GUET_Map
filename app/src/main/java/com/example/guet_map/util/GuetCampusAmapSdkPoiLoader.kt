@@ -16,7 +16,8 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 
 /**
- * 直接使用高德 Search SDK（PoiSearch）返回的 POI：原名称、原坐标上图，不做二次校正或覆盖。
+ * 直接使用高德 Search SDK（PoiSearch）返回的 POI 原始数据。
+ * 后续通过 CampusBuildingCatalog.mergeInto() 进行坐标校正，确保已知地点使用准确坐标。
  */
 @Singleton
 class GuetCampusAmapSdkPoiLoader @Inject constructor(
@@ -158,6 +159,94 @@ class GuetCampusAmapSdkPoiLoader @Inject constructor(
 
     private fun Location.dedupeKey(): String =
         locationId.ifBlank { "${name.trim()}@${"%.5f".format(latitude)},${"%.5f".format(longitude)}" }
+
+    /**
+     * 精确搜索特定地点，优先使用高德SDK返回的精确坐标
+     * @param query 搜索关键词（如"第五教学楼"）
+     * @return 搜索结果列表，按相关性排序
+     */
+    suspend fun searchLocation(query: String): List<Location> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+
+        // 1. 先尝试精确搜索（不使用周边限制）
+        val exactResults = searchExactKeyword(query)
+
+        // 2. 再尝试校园内搜索
+        val campusResults = searchKeyword(query, 1, campusScoped = true)
+
+        // 合并结果，去重
+        val merged = linkedMapOf<String, Location>()
+        exactResults.forEach { merged[it.dedupeKey()] = it }
+        campusResults.forEach { merged[it.dedupeKey()] = it }
+
+        merged.values.toList()
+    }
+
+    /**
+     * 精确搜索（无位置限制，返回桂林市内结果）
+     */
+    private suspend fun searchExactKeyword(keyword: String): List<Location> =
+        suspendCancellableCoroutine { cont ->
+            try {
+                val query = PoiSearch.Query(keyword, "", "桂林")
+                query.cityLimit = true
+                query.pageSize = 10
+                query.pageNum = 1
+
+                val poiSearch = PoiSearch(context, query)
+                // 不设置bound，进行全城搜索
+
+                poiSearch.setOnPoiSearchListener(object : PoiSearch.OnPoiSearchListener {
+                    override fun onPoiSearched(result: PoiResult?, rCode: Int) {
+                        if (!cont.isActive) return
+                        if (rCode != 1000 || result == null) {
+                            cont.resume(emptyList())
+                            return
+                        }
+                        val list = result.pois.orEmpty().mapNotNull { poi ->
+                            poi.toLocationOrNull(exactMatch = true)
+                        }
+                        cont.resume(list)
+                    }
+
+                    override fun onPoiItemSearched(item: PoiItem?, rCode: Int) = Unit
+                })
+                poiSearch.searchPOIAsyn()
+            } catch (_: Exception) {
+                if (cont.isActive) cont.resume(emptyList())
+            }
+        }
+
+    /**
+     * 扩展 toLocationOrNull 支持精确匹配模式
+     */
+    private fun PoiItem.toLocationOrNull(requireCampusHint: Boolean = false, exactMatch: Boolean = false): Location? {
+        val lat = latLonPoint?.latitude ?: return null
+        val lng = latLonPoint?.longitude ?: return null
+
+        val title = title.orEmpty().ifBlank { return null }
+        val address = snippet.orEmpty()
+
+        // 精确匹配模式：只在花江校区范围内
+        if (exactMatch) {
+            if (!campusBounds.contains(lat, lng)) return null
+        } else {
+            if (!campusBounds.contains(lat, lng)) return null
+            if (requireCampusHint && !looksLikeCampusPoi(title, address)) return null
+        }
+
+        return Location(
+            locationId = poiId?.takeIf { it.isNotBlank() } ?: "poi_${title.hashCode()}_${lat.toBits()}",
+            name = title,
+            latitude = lat,
+            longitude = lng,
+            category = mapCategory(title, typeDes),
+            rating = 4.0f,
+            openingHours = "",
+            imageUrl = "",
+            hasGuide = false
+        )
+    }
 
     private data class CampusBounds(
         val minLat: Double,

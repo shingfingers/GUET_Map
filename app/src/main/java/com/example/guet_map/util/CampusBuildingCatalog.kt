@@ -4,7 +4,10 @@ import com.example.guet_map.model.Location
 import com.amap.api.maps.model.LatLng
 
 /**
- * 花江校区教学楼/常用地点目录：用于补全高德未返回的 POI，并支持搜索别名（一教、5教等）。
+ * 花江校区教学楼/常用地点目录：
+ * 1. 预定义所有已知地点的准确坐标 (fallbackLat/fallbackLng)
+ * 2. 支持搜索别名（一教、5教等）
+ * 3. mergeInto() 方法用准确坐标覆盖高德SDK返回的不准确坐标
  */
 object CampusBuildingCatalog {
 
@@ -102,20 +105,37 @@ object CampusBuildingCatalog {
         add("桂电花江教学楼")
     }
 
+    /**
+     * 合并高德POI数据和已知地点数据
+     * 关键：已知地点使用 CampusBuildingCatalog 中的准确坐标
+     */
     fun mergeInto(existing: List<Location>): List<Location> {
         val amapPois = existing.filter { loc ->
             !CampusBuildingNumbers.shouldDropAmapTeachingPoi(loc.name)
-        }
-        val result = amapPois.toMutableList()
+        }.toMutableList()
 
+        // 用准确坐标覆盖已知地点的坐标
+        val result = amapPois.map { loc ->
+            val entry = findEntryByAlias(loc.name)
+            if (entry != null && entry.matchesName(loc.name)) {
+                // 使用准确坐标
+                locationFromEntry(entry)
+            } else {
+                loc
+            }
+        }.toMutableList()
+
+        // 添加缺失的已知地点
         for (entry in teachingBuildings) {
-            if (entryAlreadyPresent(result, entry)) continue
-            result.add(locationFromEntry(entry))
+            if (!entryAlreadyPresent(result, entry)) {
+                result.add(locationFromEntry(entry))
+            }
         }
 
         for (entry in extraCampusPlaces) {
-            if (entryAlreadyPresent(result, entry)) continue
-            result.add(locationFromEntry(entry))
+            if (!entryAlreadyPresent(result, entry)) {
+                result.add(locationFromEntry(entry))
+            }
         }
 
         return result.sortedBy { it.name }

@@ -45,7 +45,7 @@ class ChatFragment : Fragment() {
     }
 
     private fun setupToolbar() {
-        binding.toolbar.title = viewModel.uiState.value.friendName.ifEmpty { "聊天" }
+        binding.toolbar.title = viewModel.uiState.value.friendName.ifBlank { "聊天" }
         binding.toolbar.setNavigationOnClickListener {
             findNavController().navigateUp()
         }
@@ -95,8 +95,10 @@ class ChatFragment : Fragment() {
 
     private fun render(state: ChatUiState) {
         binding.progressBar.isVisible = state.isLoading
-        binding.textViewEmpty.isVisible = !state.isLoading && state.messages.isEmpty()
-        binding.recyclerView.isVisible = !state.isLoading && state.messages.isNotEmpty()
+
+        val hasMessages = state.messages.isNotEmpty()
+        binding.recyclerView.isVisible = hasMessages && !state.isLoading
+        binding.textViewEmpty.isVisible = !hasMessages && !state.isLoading
 
         adapter.submitList(state.messages) {
             if (state.messages.isNotEmpty()) {
@@ -107,8 +109,6 @@ class ChatFragment : Fragment() {
         if (state.messageSent) {
             binding.recyclerView.scrollToPosition(state.messages.size - 1)
         }
-
-        binding.toolbar.title = state.friendName.ifEmpty { "聊天" }
 
         val msg = state.message
         if (!msg.isNullOrBlank() && msg != lastMessage) {

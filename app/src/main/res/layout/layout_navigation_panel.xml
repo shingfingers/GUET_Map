@@ -191,6 +191,14 @@
             android:maxLines="4"
             android:ellipsize="end" />
 
+        <!-- 上拉收起把手 -->
+        <View
+            android:id="@+id/dragHandle"
+            android:layout_width="match_parent"
+            android:layout_height="24dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_search_results_handle" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

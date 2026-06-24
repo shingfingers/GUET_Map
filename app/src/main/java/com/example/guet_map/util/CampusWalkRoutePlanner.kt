@@ -41,13 +41,33 @@ class CampusWalkRoutePlanner @Inject constructor(
         onSuccess: (WalkRouteInfo) -> Unit,
         onError: (String) -> Unit
     ) {
+        // 直线距离超过 5km 直接兜底，不浪费时间去调 SDK/API（步行路线规划不支持超长距离）
+        val directDistance = haversineMeters(start, end)
+        if (directDistance > 5000) {
+            onSuccess(buildFallbackRoute(start, end, targetName))
+            return
+        }
+
         scope.launch {
             try {
-                val route = withContext(Dispatchers.IO) {
-                    requestWalkRouteSdk(start, end, targetName)
-                        ?: runCatching { requestWalkRouteWeb(start, end, targetName) }.getOrNull()
-                        ?: buildFallbackRoute(start, end, targetName)
-                }
+                val route = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                    // Web API 优先（比 SDK 更可靠），在 IO 线程
+                    val webRoute = try {
+                        withContext(Dispatchers.IO) {
+                            requestWalkRouteWeb(start, end, targetName)
+                        }
+                    } catch (_: Exception) { null }
+
+                    // Web API 失败则回退 SDK
+                    if (webRoute != null) webRoute else {
+                        try {
+                            withContext(Dispatchers.Main) {
+                                requestWalkRouteSdk(start, end, targetName)
+                            }
+                        } catch (_: Exception) { null }
+                    }
+                } ?: buildFallbackRoute(start, end, targetName)
+
                 onSuccess(route)
             } catch (e: Exception) {
                 onError(e.message ?: "路径规划失败")

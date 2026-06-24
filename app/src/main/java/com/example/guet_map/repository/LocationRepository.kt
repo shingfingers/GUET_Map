@@ -118,12 +118,18 @@ class LocationRepository @Inject constructor(
         locationDao.getLocationById(locationId)?.toDomain()
 
     private suspend fun loadRemoteLocations(): List<Location> {
-        val fromAmap = campusPoiLoader.loadGuetCampusLocations()
-        if (fromAmap.isNotEmpty()) return fromAmap
         if (!BuildConfig.USE_MOCK_API) {
-            return apiService.getLocations()
+            try {
+                val fromApi = apiService.getLocations()
+                if (fromApi.isNotEmpty()) return fromApi
+            } catch (_: Exception) {}
         }
-        return emptyList()
+        val fromAmap = campusPoiLoader.loadGuetCampusLocations()
+        if (fromAmap.isNotEmpty()) {
+            // 使用 CampusBuildingCatalog 的准确坐标覆盖已知地点
+            return CampusBuildingCatalog.mergeInto(fromAmap)
+        }
+        return CampusBuildingCatalog.toMockLocations()
     }
 
     private fun Location.toEntity() = LocationEntity(

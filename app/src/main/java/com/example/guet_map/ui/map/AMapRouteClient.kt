@@ -1,6 +1,7 @@
 package com.example.guet_map.ui.map
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -26,8 +27,11 @@ class AMapRouteClient(private val context: Context) {
     private val gson = Gson()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // 高德地图 API Key
-    private val apiKey = "5271720bca97f691ddce5f80cbeccb37"
+    // 高德地图 API Key（从 Manifest meta-data 读取）
+    private val apiKey: String by lazy {
+        val appInfo = context.packageManager.getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+        appInfo.metaData?.getString("com.amap.api.v2.apikey").orEmpty()
+    }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)

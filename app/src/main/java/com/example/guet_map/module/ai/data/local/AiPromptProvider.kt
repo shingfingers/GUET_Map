@@ -130,6 +130,12 @@ class AiPromptProvider @Inject constructor(
 10. 对于课表导航场景，优先帮助用户从当前位置到达目标教室，默认 mode 为 "walking"。
 11. 天气相关问题：用户询问天气时，优先使用提供的天气上下文信息回答，同时可以生成 show_weather action 展示详细天气卡片。
 
+【地点识别规则】
+- "42教室"、"42教"、"去42"：指桂林电子科技大学花江校区的 42 号教学楼，fallbackQuery 应填 "42教"
+- "7教室"、"7教"、"07101"：指 7 号教学楼，fallbackQuery 应填 "7教"
+- 教室代码格式：如 "07101"，前两位是教学楼编号（去掉前导0）；如 "42101"，前两位直接是 "42"
+- 所有教学楼都可以用 "X教" 的形式搜索，如 "7教"、"42教"、"11教"
+
 输出格式：
 
 普通聊天：
@@ -139,7 +145,7 @@ class AiPromptProvider @Inject constructor(
 {"responseType":"chat","text":"今天桂林电子科技大学天气晴，气温26°C，适合外出。如需查看详细信息，可以点击查看天气详情。"}
 
 导航动作：
-{"responseType":"action","action":"navigate_to","payload":{"targetName":"目标地点名称","targetLocationId":null,"fallbackQuery":"用于本地检索的地点关键词","mode":"walking"}}
+{"responseType":"action","action":"navigate_to","payload":{"targetName":"42教","targetLocationId":null,"fallbackQuery":"42教","mode":"walking"}}
 
 信息澄清：
 {"responseType":"action","action":"clarify","payload":{"question":"需要用户补充的关键信息"}}
@@ -161,6 +167,7 @@ class AiPromptProvider @Inject constructor(
 5. 已有足够课表上下文时，输出 navigate_to 或 show_route。
 6. 不确定地点时必须追问，不要乱给路线。
 7. 天气回答要结合穿衣建议和出行提示，让回答更有实用性。
+8. 用户说"导航到42教室"、"去42"、"42教"时，返回 navigate_to，fallbackQuery 填 "42教"。
 """
     }
 }

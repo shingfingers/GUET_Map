@@ -19,6 +19,8 @@ import com.example.guet_map.R
 import com.example.guet_map.databinding.FragmentTimetableImportBinding
 import com.example.guet_map.module.ai.data.model.TimetableEntry
 import com.example.guet_map.ui.MainNavViewModel
+import com.example.guet_map.ui.map.MapViewModel
+import com.example.guet_map.util.ClassroomCodeParser
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -31,6 +33,7 @@ class TimetableImportFragment : Fragment() {
 
     private val viewModel: TimetableImportViewModel by viewModels()
     private val mainNavViewModel: MainNavViewModel by activityViewModels()
+    private val mapViewModel: MapViewModel by activityViewModels()
     private lateinit var entriesAdapter: TimetableEntriesAdapter
 
     private var semesterList: List<String> = emptyList()
@@ -123,10 +126,37 @@ class TimetableImportFragment : Fragment() {
     }
 
     private fun navigateToLocation(entry: TimetableEntry) {
-        // 使用教室名称（如 07101）作为 locationId 进行导航
-        val locationId = entry.classroomName
-        mainNavViewModel.openLocationOnMap(locationId)
-        Toast.makeText(requireContext(), "正在跳转到地图导航...", Toast.LENGTH_SHORT).show()
+        val classroomCode = entry.classroomName
+        val locations = mapViewModel.cachedLocations.value
+
+        // 尝试解析教室代码（如 07101 → 7教）
+        val target = ClassroomCodeParser.resolveNavigationTarget(classroomCode, locations)
+
+        when {
+            // 方案1：有 locationId，直接使用
+            target?.locationId != null -> {
+                mainNavViewModel.openLocationOnMap(target.locationId)
+                Toast.makeText(
+                    requireContext(),
+                    "正在导航到 ${target.buildingName}（${classroomCode}）",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            // 方案2：没有精确匹配的教学楼位置，尝试用教学楼名称搜索
+            target?.buildingName != null -> {
+                mainNavViewModel.openLocationOnMap(target.buildingName)
+                Toast.makeText(
+                    requireContext(),
+                    "正在搜索 ${target.buildingName}（${classroomCode}）",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            // 方案3：无法解析教室代码，直接使用教室名称搜索
+            else -> {
+                mainNavViewModel.openLocationOnMap(classroomCode)
+                Toast.makeText(requireContext(), "正在搜索 $classroomCode", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun showEditDialog(entry: TimetableEntry) {

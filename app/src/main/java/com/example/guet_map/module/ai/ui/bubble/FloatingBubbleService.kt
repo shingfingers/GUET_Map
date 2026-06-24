@@ -121,7 +121,11 @@ class FloatingBubbleService : Service() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showBubble() {
-        if (bubbleView != null) return
+        // 如果已存在但可能在屏幕外，先移除再重建
+        if (bubbleView != null) {
+            try { windowManager?.removeView(bubbleView) } catch (_: Exception) {}
+            bubbleView = null
+        }
 
         bubbleView = LayoutInflater.from(this).inflate(R.layout.layout_floating_bubble, null)
         bubbleParams = WindowManager.LayoutParams().apply {
@@ -180,7 +184,7 @@ class FloatingBubbleService : Service() {
 
                     if (isDragging) {
                         bubbleParams?.x = initialX + deltaX
-                        bubbleParams?.y = initialY + deltaY
+                        bubbleParams?.y = (initialY + deltaY).coerceIn(0, getScreenHeight() - dpToPx(56))
                         windowManager?.updateViewLayout(bubbleView, bubbleParams)
                     }
                     true

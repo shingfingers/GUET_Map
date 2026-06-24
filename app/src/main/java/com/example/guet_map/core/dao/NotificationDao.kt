@@ -28,6 +28,9 @@ interface NotificationDao {
     @Query("DELETE FROM notifications WHERE user_id = :userId")
     suspend fun deleteAllForUser(userId: String)
 
+    @Query("SELECT COUNT(*) FROM notifications WHERE user_id = :userId")
+    suspend fun countByUserId(userId: String): Int
+
     @Query("DELETE FROM notifications")
     suspend fun deleteAll()
 }

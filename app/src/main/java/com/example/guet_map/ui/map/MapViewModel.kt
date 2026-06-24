@@ -17,11 +17,13 @@ import com.example.guet_map.repository.LocationRepository
 import com.example.guet_map.ui.map.state.ErrorType
 import com.example.guet_map.ui.map.state.MapUiEvent
 import com.example.guet_map.ui.map.state.MapUiState
+import com.example.guet_map.util.CampusBuildingCatalog
 import com.example.guet_map.util.CampusGeo
 import com.example.guet_map.util.CampusLocationResolver
 import com.example.guet_map.util.CampusSearchMatcher
 import com.example.guet_map.util.CampusSearchQueryNormalizer
 import com.example.guet_map.util.CampusWalkRoutePlanner
+import com.example.guet_map.util.GuetCampusAmapSdkPoiLoader
 import com.example.guet_map.data.UserPrefs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -44,7 +46,8 @@ class MapViewModel @Inject constructor(
     private val guideRepository: GuideRepository,
     private val favoriteRepository: LegacyFavoriteRepository,
     private val walkRoutePlanner: CampusWalkRoutePlanner,
-    private val userPrefs: UserPrefs
+    private val userPrefs: UserPrefs,
+    private val sdkPoiLoader: GuetCampusAmapSdkPoiLoader  // 添加SDK搜索
 ) : ViewModel() {
 
     // ============================================================
@@ -139,6 +142,10 @@ class MapViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    // SDK实时搜索结果（用于获取高德精确坐标）
+    private val _sdkSearchResults = MutableStateFlow<List<Location>>(emptyList())
+    val sdkSearchResults: StateFlow<List<Location>> = _sdkSearchResults.asStateFlow()
+
     val searchResults: StateFlow<List<Location>> = _searchQuery
         .combine(cachedLocations) { query, locations ->
             CampusSearchMatcher.filterAndSort(
@@ -193,16 +200,49 @@ class MapViewModel @Inject constructor(
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
+        // 实时SDK搜索获取精确坐标
+        if (query.length >= 2) {
+            performSdkSearch(query)
+        }
+    }
+
+    /**
+     * 执行高德SDK搜索，获取实时精确位置
+     */
+    private fun performSdkSearch(query: String) {
+        viewModelScope.launch {
+            try {
+                val results = sdkPoiLoader.searchLocation(query)
+                if (results.isNotEmpty()) {
+                    _sdkSearchResults.value = results
+                }
+            } catch (_: Exception) {
+                // 静默失败，使用本地缓存
+            }
+        }
     }
 
     fun clearSearchQuery() {
         _searchQuery.value = ""
+        _sdkSearchResults.value = emptyList()
     }
 
     fun submitSearch(query: String) {
         val q = query.trim()
         if (q.isEmpty()) return
         _searchQuery.value = q
+
+        // 优先使用SDK搜索结果（高德精确坐标），但用已知坐标校正
+        val sdkResults = _sdkSearchResults.value
+        if (sdkResults.isNotEmpty()) {
+            // 对SDK结果进行坐标校正
+            val correctedResults = correctLocationsWithKnownCoords(sdkResults)
+            val matched = CampusSearchMatcher.filterAndSort(correctedResults, q, limit = 5)
+            if (matched.isNotEmpty()) {
+                pickFromSearch(matched.first())
+                return
+            }
+        }
 
         updateState(MapUiState.SearchResult(q, searchResults.value))
 
@@ -213,6 +253,26 @@ class MapViewModel @Inject constructor(
 
         if (match != null) {
             pickFromSearch(match)
+        }
+    }
+
+    /**
+     * 使用 CampusBuildingCatalog 的已知准确坐标校正地点列表
+     */
+    private fun correctLocationsWithKnownCoords(locations: List<Location>): List<Location> {
+        return locations.map { loc ->
+            // 查找是否有匹配的已知地点
+            val entry = CampusBuildingCatalog.findEntryByAlias(loc.name)
+            if (entry != null && entry.matchesName(loc.name)) {
+                // 使用已知坐标
+                loc.copy(
+                    latitude = entry.fallbackLat,
+                    longitude = entry.fallbackLng,
+                    locationId = entry.locationId
+                )
+            } else {
+                loc
+            }
         }
     }
 
@@ -231,7 +291,12 @@ class MapViewModel @Inject constructor(
         CampusLocationResolver.resolveForQuery(query, cachedLocations.value)
 
     fun focusOnLocation(location: Location) {
-        val target = cachedLocations.value.find { it.locationId == location.locationId } ?: location
+        // 使用 CampusLocationResolver 校正坐标
+        val target = CampusLocationResolver.preferAmapCoordinates(
+            cachedLocations.value.find { it.locationId == location.locationId }
+                ?: location,
+            cachedLocations.value
+        )
         _highlightedLocationId.value = target.locationId
         selectLocation(target)
         viewModelScope.launch {
@@ -374,22 +439,33 @@ class MapViewModel @Inject constructor(
     }
 
     private suspend fun resolveLocation(locationId: String): Location? {
+        // 精确 ID 匹配
         cachedLocations.value.find { it.locationId == locationId }?.let { return it }
         locationRepository.getCachedLocationById(locationId)?.let { return it }
+        // 确保数据已加载
         if (cachedLocations.value.isEmpty()) {
             locationRepository.getLocations().first { it !is Resource.Loading }
         }
         cachedLocations.value.find { it.locationId == locationId }?.let { return it }
-        return locationRepository.getCachedLocationById(locationId)
+        // 按名称模糊匹配（AI 导航传入的是"五教"等名称而非 ID）
+        val byId = locationRepository.getCachedLocationById(locationId)
             ?: favoriteRepository.enrichFavoriteFromCache(locationId)
+        if (byId != null) return byId
+        return com.example.guet_map.util.CampusSearchMatcher.resolveBest(
+            cachedLocations.value, locationId
+        )
     }
 
     suspend fun toggleFavorite(location: Location): Boolean =
         favoriteRepository.toggleFavorite(location)
 
     fun planWalkRouteTo(destination: Location, start: LatLng) {
-        val dest = cachedLocations.value.find { it.locationId == destination.locationId }
-            ?: destination
+        // 使用 CampusLocationResolver 校正坐标，确保使用 CampusBuildingCatalog 的准确坐标
+        val dest = CampusLocationResolver.preferAmapCoordinates(
+            cachedLocations.value.find { it.locationId == destination.locationId }
+                ?: destination,
+            cachedLocations.value
+        )
         _routeLoading.value = true
         updateState(
             MapUiState.Navigating(
@@ -413,10 +489,19 @@ class MapViewModel @Inject constructor(
                 )
             },
             onError = { message ->
+                // 即使出错也生成兜底路线，避免 UI 卡在"正在规划路线"
+                val fallback = WalkRouteInfo(
+                    targetName = dest.name,
+                    distanceMeters = 0,
+                    durationSeconds = 0,
+                    polyline = listOf(start, LatLng(dest.latitude, dest.longitude))
+                )
+                _walkRoute.value = fallback
                 _routeLoading.value = false
                 updateState(
                     MapUiState.Navigating(
                         target = dest,
+                        route = fallback,
                         isLoading = false,
                         errorMessage = message
                     )

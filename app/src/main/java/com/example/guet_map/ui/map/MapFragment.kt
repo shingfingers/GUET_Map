@@ -3,6 +3,7 @@ package com.example.guet_map.ui.map
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -69,11 +70,12 @@ class MapFragment : Fragment() {
     private var aMap: AMap? = null
     private var mapViewCreated = false
 
-    private var aMapLocationClient: AMapLocationClient? = null
+    private lateinit var locationManager: LocationManager
     private var myLocationMarker: com.amap.api.maps.model.Marker? = null
     private var latestLocation: android.location.Location? = null
     private var latestGcjLatLng: LatLng? = null
     private var hasAutoCenteredOnLocation = false
+    private var pendingCenterOnLocation = false
     private var routePolyline: com.amap.api.maps.model.Polyline? = null
 
     private lateinit var filterAdapter: FilterTagAdapter
@@ -88,7 +90,7 @@ class MapFragment : Fragment() {
         val fineGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseGranted = grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (fineGranted || coarseGranted) {
-            initAndStartAmapLocation()
+            startSystemLocation()
         }
     }
 
@@ -120,6 +122,8 @@ class MapFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        locationManager = requireContext().getSystemService(LocationManager::class.java)
 
         initComponents()
         setupViews()
@@ -300,6 +304,16 @@ class MapFragment : Fragment() {
                     }
                 }
 
+                // 监听SDK实时搜索结果，用于显示高德精确位置
+                launch {
+                    viewModel.sdkSearchResults.collectLatest { sdkResults ->
+                        if (sdkResults.isNotEmpty()) {
+                            // 优先使用SDK搜索结果（包含高德精确坐标）
+                            searchBarComponent.updateSearchResults(sdkResults)
+                        }
+                    }
+                }
+
                 launch {
                     viewModel.selectedLocation.collect { location ->
                         location?.let {
@@ -357,11 +371,16 @@ class MapFragment : Fragment() {
             is MapUiState.SearchResult -> {}
             is MapUiState.LocationDetail -> {}
             is MapUiState.Navigating -> {
-                if (state.isLoading) {
-                    navigationPanelComponent.showLoading()
-                } else {
-                    state.route?.let {
-                        navigationPanelComponent.show(state.target, it)
+                // 用 post 确保 cardSearch 已完成布局（从探索页跳转时可能尚未 measure）
+                binding.cardSearch.post {
+                    val topMargin = binding.cardSearch.bottom + (8 * resources.displayMetrics.density).toInt()
+                    val locText = latestLocation?.let { loc ->
+                        "当前位置: %.5f, %.5f (精度%.0fm)".format(loc.latitude, loc.longitude, loc.accuracy)
+                    }
+                    if (state.isLoading) {
+                        navigationPanelComponent.showLoading(topMargin)
+                    } else if (state.route != null) {
+                        navigationPanelComponent.show(state.target, state.route, topMargin, locText)
                     }
                 }
             }
@@ -469,7 +488,7 @@ class MapFragment : Fragment() {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasFine || hasCoarse) {
-            initAndStartAmapLocation()
+            startSystemLocation()
             return
         }
 
@@ -505,30 +524,30 @@ class MapFragment : Fragment() {
         requestLocationPermissionIfNeeded()
     }
 
+    private val locationListener = android.location.LocationListener { location ->
+        onLocationReceived(location)
+    }
+
+    private fun startSystemLocation() {
+        try {
+            val providers = locationManager.getProviders(true)
+            for (provider in providers) {
+                try {
+                    locationManager.requestLocationUpdates(
+                        provider, 2000L, 5f, locationListener
+                    )
+                } catch (_: SecurityException) {}
+            }
+        } catch (e: SecurityException) {}
+    }
+
     private fun stopLocationServices() {
-        LocationCallbackHelper.stop()
-        LocationCallbackHelper.destroy()
-        aMapLocationClient = null
+        try {
+            locationManager.removeUpdates(locationListener)
+        } catch (_: Exception) {}
     }
 
-    private fun initAndStartAmapLocation() {
-        aMapLocationClient = AMapLocationClient(requireContext())
-        aMapLocationClient?.onLocationResult = { amapLocation ->
-            LocationCallbackHelper.onLocationResult?.invoke(amapLocation)
-        }
-        aMapLocationClient?.start()
-    }
-
-    private fun onAmapLocationReceived(amapLocation: com.amap.api.location.AMapLocation) {
-        val location = android.location.Location("").apply {
-            latitude = amapLocation.latitude
-            longitude = amapLocation.longitude
-            accuracy = amapLocation.accuracy
-        }
-        onLocationReceived(location, amapLocation)
-    }
-
-    private fun onLocationReceived(location: android.location.Location, amapLocation: com.amap.api.location.AMapLocation) {
+    private fun onLocationReceived(location: android.location.Location) {
         val gcj = CoordinateUtil.wgs84ToGcj02(
             requireContext(),
             location.latitude,
@@ -551,7 +570,13 @@ class MapFragment : Fragment() {
             myLocationMarker?.position = latLng
         }
 
-        if (!hasAutoCenteredOnLocation && amapLocation.accuracy < 50) {
+        if (pendingCenterOnLocation) {
+            pendingCenterOnLocation = false
+            val update = com.amap.api.maps.CameraUpdateFactory.newLatLngZoom(latLng, 17f)
+            map.animateCamera(update, 500, null)
+        }
+
+        if (!hasAutoCenteredOnLocation && location.accuracy < 50) {
             hasAutoCenteredOnLocation = true
             val update = com.amap.api.maps.CameraUpdateFactory.newLatLngZoom(latLng, 17f)
             map.animateCamera(update, 500, null)
@@ -559,15 +584,21 @@ class MapFragment : Fragment() {
     }
 
     private fun centerOnMyLocation() {
-        val map = aMap ?: return
+        val map = aMap
+        if (map == null) {
+            requestLocationPermissionIfNeeded()
+            Toast.makeText(requireContext(), "正在获取位置…", Toast.LENGTH_SHORT).show()
+            return
+        }
         val loc = latestLocation
         if (loc != null) {
             val gcj = CoordinateUtil.wgs84ToGcj02(requireContext(), loc.latitude, loc.longitude)
             val update = com.amap.api.maps.CameraUpdateFactory.newLatLngZoom(
                 LatLng(gcj.latitude, gcj.longitude), 17f
             )
-            map.moveCamera(update)
+            map.animateCamera(update)
         } else {
+            pendingCenterOnLocation = true
             requestLocationPermissionIfNeeded()
             Toast.makeText(requireContext(), "正在获取位置…", Toast.LENGTH_SHORT).show()
         }
@@ -578,9 +609,7 @@ class MapFragment : Fragment() {
     }
 
     private fun startWalkNavigation(location: Location) {
-        val start = latestGcjLatLng ?: viewModel.campusCenterLatLng().also {
-            Toast.makeText(requireContext(), R.string.route_no_location, Toast.LENGTH_SHORT).show()
-        }
+        val start = latestGcjLatLng ?: viewModel.campusCenterLatLng()
         viewModel.planWalkRouteTo(location, start)
     }
 
@@ -664,10 +693,9 @@ class MapFragment : Fragment() {
                 .color(ContextCompat.getColor(requireContext(), R.color.primary))
         )
 
-        val minutes = (route.durationSeconds / 60).coerceAtLeast(1)
-        binding.root.findViewById<android.widget.TextView>(R.id.tvRouteSummary)?.text =
-            getString(R.string.route_summary_format, route.targetName, route.distanceMeters, minutes)
-        binding.root.findViewById<View>(R.id.cardWalkNav)?.visibility = View.VISIBLE
+        // 导航显示时收起筛选标签和搜索结果
+        binding.rvFilterTags.visibility = View.GONE
+        searchBarComponent.dismissSearchResults()
 
         val builder = com.amap.api.maps.model.LatLngBounds.builder()
         route.polyline.forEach { builder.include(it) }
@@ -679,7 +707,7 @@ class MapFragment : Fragment() {
     private fun clearWalkRouteFromMap() {
         routePolyline?.remove()
         routePolyline = null
-        binding.root.findViewById<View>(R.id.cardWalkNav)?.visibility = View.GONE
+        binding.rvFilterTags.visibility = View.VISIBLE
     }
 
     private fun focusMap(lat: Double, lng: Double, zoom: Float) {
@@ -721,7 +749,6 @@ class MapFragment : Fragment() {
                         LatLng(loc.latitude, loc.longitude), 17f
                     )
                 )
-                // AI 导航：自动开始步行导航
                 startWalkNavigation(loc)
             }
         }
@@ -817,21 +844,5 @@ class MapFragment : Fragment() {
         }
     }
 
-    companion object {
-        private object LocationCallbackHelper {
-            fun requireContext(): android.content.Context = throw IllegalStateException("Not initialized")
-            var onLocationResult: ((com.amap.api.location.AMapLocation) -> Unit)? = null
-            var onLocationError: ((Int, String) -> Unit)? = null
-            fun start() {}
-            fun stop() {}
-            fun destroy() {}
-            fun toStandardLocation(amapLocation: com.amap.api.location.AMapLocation): android.location.Location {
-                return android.location.Location("").apply {
-                    latitude = amapLocation.latitude
-                    longitude = amapLocation.longitude
-                    accuracy = amapLocation.accuracy
-                }
-            }
-        }
-    }
+    companion object
 }
