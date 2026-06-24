@@ -6,6 +6,9 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
+import coil.transform.CircleCropTransformation
+import com.example.guet_map.R
 import com.example.guet_map.databinding.ItemCheckinPostBinding
 import com.example.guet_map.ui.discover.model.CheckInPost
 import java.text.SimpleDateFormat
@@ -55,7 +58,22 @@ class CheckInPostAdapter(
                 val topicsText = post.topics.joinToString(" ") { "#$it" }
                 tvTopics.text = topicsText
 
-                tvAvatar.text = post.userName.firstOrNull()?.uppercase() ?: "?"
+                // 头像：优先使用真实头像 URL，否则显示昵称首字母
+                val avatarUrl = post.userAvatar
+                if (!avatarUrl.isNullOrEmpty()) {
+                    ivAvatar.load(avatarUrl) {
+                        crossfade(true)
+                        placeholder(R.drawable.ic_avatar)
+                        error(R.drawable.ic_avatar)
+                        transformations(CircleCropTransformation())
+                    }
+                    tvAvatar.text = ""
+                    tvAvatar.visibility = android.view.View.INVISIBLE
+                } else {
+                    ivAvatar.setImageDrawable(null)
+                    tvAvatar.text = post.userName.firstOrNull()?.uppercase() ?: "?"
+                    tvAvatar.visibility = android.view.View.VISIBLE
+                }
 
                 root.setOnClickListener { onCommentClick(post.id) }
                 layoutLike.setOnClickListener { onLikeClick(post.id) }

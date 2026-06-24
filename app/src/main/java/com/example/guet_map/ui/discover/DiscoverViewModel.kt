@@ -125,50 +125,8 @@ class DiscoverViewModel @Inject constructor(
             val now = System.currentTimeMillis()
             val day = 24 * 60 * 60 * 1000L
 
-            _checkInPosts.value = listOf(
-                CheckInPost(
-                    id = "1",
-                    userId = "user1",
-                    userName = "小明",
-                    userAvatar = null,
-                    locationId = "building_11",
-                    locationName = "第十一教学楼",
-                    content = "今天在图书馆学习了一整天，收获满满！",
-                    imageUrls = emptyList(),
-                    topics = listOf("学习", "日常"),
-                    timestamp = now - 2 * 60 * 60 * 1000,
-                    likeCount = 42,
-                    commentCount = 5
-                ),
-                CheckInPost(
-                    id = "2",
-                    userId = "user2",
-                    userName = "校园小助手",
-                    userAvatar = null,
-                    locationId = "stadium",
-                    locationName = "花江校区体育场",
-                    content = "今天的篮球赛太精彩了！",
-                    imageUrls = emptyList(),
-                    topics = listOf("体育", "篮球赛"),
-                    timestamp = now - 5 * 60 * 60 * 1000,
-                    likeCount = 128,
-                    commentCount = 23
-                ),
-                CheckInPost(
-                    id = "3",
-                    userId = "user3",
-                    userName = "美食探索家",
-                    userAvatar = null,
-                    locationId = "canteen_1",
-                    locationName = "第一食堂",
-                    content = "今天尝试了新出的麻辣香锅，味道不错",
-                    imageUrls = emptyList(),
-                    topics = listOf("美食", "日常"),
-                    timestamp = now - 8 * 60 * 60 * 1000,
-                    likeCount = 35,
-                    commentCount = 8
-                )
-            )
+            // Mock data 已移除，真实帖子由 loadPostsFromServer() 从服务器加载
+            _checkInPosts.value = emptyList()
 
             _topics.value = listOf("学习", "日常", "体育", "美食", "校园活动")
 

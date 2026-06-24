@@ -186,6 +186,11 @@ class CampusWalkRoutePlanner @Inject constructor(
         return (earthRadius * c).toInt()
     }
 
+    /**
+     * 高德 Web API 返回格式：经度,纬度;经度,纬度;...
+     * AMap SDK 返回 LatLonPoint(lat, lon) 格式。
+     * 统一转为 LatLng(lat, lng)。
+     */
     private fun decodePolyline(polyline: String?): List<LatLng> {
         if (polyline.isNullOrBlank()) return emptyList()
         return polyline.split(";").mapNotNull { segment ->

@@ -134,7 +134,8 @@ class AMapRouteClient(private val context: Context) {
 
     /**
      * 解析高德 polyline 字符串为 LatLng 列表
-     * 格式：经度,纬度;经度,纬度;...
+     * 高德 Web API 返回格式：经度,纬度;经度,纬度;...
+     * 返回 Pair(latitude, longitude)
      */
     private fun parsePolyline(polyline: String?): List<Pair<Double, Double>> {
         if (polyline.isNullOrEmpty()) return emptyList()

@@ -9,9 +9,16 @@ import android.os.Build
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.os.Bundle
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -22,6 +29,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.ImageLoader
+import coil.load
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import coil.transform.CircleCropTransformation
 import com.amap.api.maps.AMap
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.BitmapDescriptorFactory
@@ -559,10 +571,11 @@ class MapFragment : Fragment() {
         val latLng = latestGcjLatLng!!
 
         if (myLocationMarker == null) {
+            val icon = createMyLocationIcon()
             myLocationMarker = map.addMarker(
                 MarkerOptions()
                     .position(latLng)
-                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_my_location))
+                    .icon(icon)
                     .anchor(0.5f, 0.5f)
                     .zIndex(10f)
             )
@@ -582,6 +595,74 @@ class MapFragment : Fragment() {
             map.animateCamera(update, 500, null)
         }
     }
+
+    private fun createMyLocationIcon(): com.amap.api.maps.model.BitmapDescriptor {
+        val avatarUrl = userPrefs.avatar
+        return if (!avatarUrl.isNullOrEmpty()) {
+            try {
+                val loader = ImageLoader(requireContext())
+                val request = ImageRequest.Builder(requireContext())
+                    .data(avatarUrl)
+                    .size(120, 120)
+                    .transformations(CircleCropTransformation())
+                    .allowHardware(false)
+                    .build()
+                val result = (loader.execute(request) as? SuccessResult)?.drawable
+                if (result != null) {
+                    BitmapDescriptorFactory.fromBitmap(result.toBitmap())
+                } else {
+                    defaultLocationIcon()
+                }
+            } catch (_: Exception) {
+                defaultLocationIcon()
+            }
+        } else {
+            defaultLocationIcon()
+        }
+    }
+
+    private fun defaultLocationIcon(): com.amap.api.maps.model.BitmapDescriptor {
+        val size = dpToPx(48)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#4285F4")
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint)
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = dpToPx(3).toFloat()
+        }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f - dpToPx(1.5f), borderPaint)
+
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = dpToPx(20).toFloat()
+            textAlign = Paint.Align.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val nickname = userPrefs.nickname
+        val initial = nickname.firstOrNull()?.uppercaseChar() ?: '?'
+        val textY = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+        canvas.drawText(initial.toString(), size / 2f, textY, textPaint)
+
+        return BitmapDescriptorFactory.fromBitmap(bitmap)
+    }
+
+    private fun Bitmap.toBitmap(): Bitmap {
+        if (this is BitmapDrawable) return bitmap
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        setBounds(0, 0, canvas.width, canvas.height)
+        draw(canvas)
+        return bitmap
+    }
+
+    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 
     private fun centerOnMyLocation() {
         val map = aMap

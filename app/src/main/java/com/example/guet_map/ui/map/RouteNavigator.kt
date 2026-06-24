@@ -37,6 +37,7 @@ class RouteNavigator(private val aMap: AMap) {
         val allPoints = mutableListOf<LatLng>()
         routeResult.steps.forEach { step ->
             step.polyline.forEach { (lat, lng) ->
+                // Pair is (latitude, longitude) from AMapRouteClient.parsePolyline
                 allPoints.add(LatLng(lat, lng))
             }
         }
