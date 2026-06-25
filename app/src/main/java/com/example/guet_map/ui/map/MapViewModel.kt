@@ -25,6 +25,7 @@ import com.example.guet_map.util.CampusSearchQueryNormalizer
 import com.example.guet_map.util.CampusWalkRoutePlanner
 import com.example.guet_map.util.GuetCampusAmapSdkPoiLoader
 import com.example.guet_map.data.UserPrefs
+import com.example.guet_map.ui.map.model.MapThemeType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,6 +46,7 @@ class MapViewModel @Inject constructor(
     private val locationRepository: LocationRepository,
     private val guideRepository: GuideRepository,
     private val favoriteRepository: LegacyFavoriteRepository,
+    private val socialFavoriteRepository: com.example.guet_map.module.social.data.repository.FavoriteRepository,
     private val walkRoutePlanner: CampusWalkRoutePlanner,
     private val userPrefs: UserPrefs,
     private val sdkPoiLoader: GuetCampusAmapSdkPoiLoader  // 添加SDK搜索
@@ -132,6 +134,10 @@ class MapViewModel @Inject constructor(
 
     private val _selectedLocation = MutableStateFlow<Location?>(null)
     val selectedLocation: StateFlow<Location?> = _selectedLocation.asStateFlow()
+
+    // 地图主题
+    private val _currentTheme = MutableStateFlow(MapThemeType.fromValue(userPrefs.mapTheme))
+    val currentTheme: StateFlow<MapThemeType> = _currentTheme.asStateFlow()
 
     val favoriteIds: StateFlow<Set<String>> = favoriteRepository
         .observeFavoriteIds()
@@ -456,8 +462,40 @@ class MapViewModel @Inject constructor(
         )
     }
 
-    suspend fun toggleFavorite(location: Location): Boolean =
-        favoriteRepository.toggleFavorite(location)
+    suspend fun toggleFavorite(location: Location): Boolean {
+        val result = favoriteRepository.toggleFavorite(location)
+        
+        // 同时保存到社交模块的收藏系统
+        if (result) {
+            viewModelScope.launch {
+                try {
+                    val userId = userPrefs.userId.ifBlank { com.example.guet_map.data.UserPrefs.GUEST_USER_ID }
+                    socialFavoriteRepository.addFavorite(
+                        userId = userId,
+                        locationId = location.locationId,
+                        locationName = location.name,
+                        locationCategory = location.category,
+                        latitude = location.latitude,
+                        longitude = location.longitude
+                    )
+                } catch (_: Exception) {
+                    // 忽略错误，保持主要收藏系统正常工作
+                }
+            }
+        } else {
+            // 取消收藏时也从社交模块删除
+            viewModelScope.launch {
+                try {
+                    val userId = userPrefs.userId.ifBlank { com.example.guet_map.data.UserPrefs.GUEST_USER_ID }
+                    socialFavoriteRepository.removeFavorite(userId, location.locationId)
+                } catch (_: Exception) {
+                    // 忽略错误
+                }
+            }
+        }
+        
+        return result
+    }
 
     fun planWalkRouteTo(destination: Location, start: LatLng) {
         // 使用 CampusLocationResolver 校正坐标，确保使用 CampusBuildingCatalog 的准确坐标
@@ -520,6 +558,15 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    // 地图主题切换
+    fun changeMapTheme(theme: MapThemeType) {
+        _currentTheme.value = theme
+        userPrefs.mapTheme = theme.value
+        viewModelScope.launch {
+            _uiEvent.emit(MapUiEvent.MapThemeChanged(theme))
+        }
+    }
+
     fun campusCenterLatLng(): LatLng = LatLng(CampusGeo.CENTER_LAT, CampusGeo.CENTER_LNG)
 
     // ── Marker 管理 ──────────────────────────────────────────
@@ -537,12 +584,15 @@ class MapViewModel @Inject constructor(
         highlightMarker = null
 
         addedMarkers = locations.map { loc ->
+            // 根据地点分类获取对应的Marker颜色
+            val markerHue = com.example.guet_map.util.MarkerColorHelper.getMarkerHueByCategory(loc.category)
+            
             val marker = map.addMarker(
                 MarkerOptions()
                     .position(LatLng(loc.latitude, loc.longitude))
                     .title(loc.name)
                     .snippet(loc.category)
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                    .icon(BitmapDescriptorFactory.defaultMarker(markerHue))
             )
             marker.`object` = loc
             marker

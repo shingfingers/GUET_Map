@@ -13,12 +13,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -56,6 +53,9 @@ import com.example.guet_map.ui.map.component.SearchBarComponent
 import com.example.guet_map.ui.map.state.ErrorType
 import com.example.guet_map.ui.map.state.MapUiEvent
 import com.example.guet_map.ui.map.state.MapUiState
+import com.example.guet_map.ui.map.adapter.MapThemeAdapter
+import com.example.guet_map.ui.map.model.MapThemeInfo
+import com.example.guet_map.ui.map.model.MapThemeType
 import com.example.guet_map.util.CampusGeo
 import com.example.guet_map.util.CoordinateUtil
 import com.example.guet_map.module.social.domain.usecase.GetWeatherUseCase
@@ -95,6 +95,8 @@ class MapFragment : Fragment() {
     private lateinit var navigationPanelComponent: NavigationPanelComponent
     private lateinit var locationDetailCardComponent: LocationDetailCardComponent
     private lateinit var bottomSheetComponent: LocationBottomSheetComponent
+
+    private var themeDialog: androidx.appcompat.app.AlertDialog? = null
 
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -237,6 +239,10 @@ class MapFragment : Fragment() {
             requestOverlayPermissionAndStartFloatingWindow()
         }
 
+        binding.fabMapTheme.setOnClickListener {
+            showMapThemeSelector()
+        }
+
         binding.ivMenu.setOnClickListener {
             if (authRepository.isLoggedIn) {
                 mainNavViewModel.requestTab(R.id.nav_profile)
@@ -361,6 +367,12 @@ class MapFragment : Fragment() {
                         }
                     }
                 }
+
+                launch {
+                    viewModel.currentTheme.collect { theme ->
+                        applyMapTheme(theme)
+                    }
+                }
             }
         }
 
@@ -426,6 +438,9 @@ class MapFragment : Fragment() {
                 requestLocationPermission()
             }
             is MapUiEvent.ShowLocationAccuracy -> {}
+            is MapUiEvent.MapThemeChanged -> {
+                // 主题切换已通过 currentTheme 流处理
+            }
         }
     }
 
@@ -473,7 +488,9 @@ class MapFragment : Fragment() {
             setAllGesturesEnabled(true)
         }
 
-        map.mapType = AMap.MAP_TYPE_NORMAL
+        // 应用保存的地图主题
+        val currentTheme = viewModel.currentTheme.value
+        map.mapType = currentTheme.mapType
 
         val cameraUpdate = com.amap.api.maps.CameraUpdateFactory.newLatLngZoom(
             LatLng(CampusGeo.CENTER_LAT, CampusGeo.CENTER_LNG), 16f
@@ -571,15 +588,37 @@ class MapFragment : Fragment() {
         val latLng = latestGcjLatLng!!
 
         if (myLocationMarker == null) {
-            val icon = createMyLocationIcon()
+            // 使用深灰色标记（接近黑色）
+            val icon = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).let { bitmap ->
+                val canvas = android.graphics.Canvas(bitmap)
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.parseColor("#212121") // 深灰色接近黑色
+                    style = android.graphics.Paint.Style.FILL
+                }
+                canvas.drawCircle(32f, 32f, 32f, paint)
+                
+                // 添加白色边框
+                val borderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.WHITE
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = 3f
+                }
+                canvas.drawCircle(32f, 32f, 30f, borderPaint)
+                
+                com.amap.api.maps.model.BitmapDescriptorFactory.fromBitmap(bitmap)
+            }
+            
             myLocationMarker = map.addMarker(
                 MarkerOptions()
                     .position(latLng)
+                    .title("我")
+                    .snippet("我的位置")
                     .icon(icon)
                     .anchor(0.5f, 0.5f)
                     .zIndex(10f)
             )
         } else {
+            // 更新位置
             myLocationMarker?.position = latLng
         }
 
@@ -596,73 +635,7 @@ class MapFragment : Fragment() {
         }
     }
 
-    private fun createMyLocationIcon(): com.amap.api.maps.model.BitmapDescriptor {
-        val avatarUrl = userPrefs.avatar
-        return if (!avatarUrl.isNullOrEmpty()) {
-            try {
-                val loader = ImageLoader(requireContext())
-                val request = ImageRequest.Builder(requireContext())
-                    .data(avatarUrl)
-                    .size(120, 120)
-                    .transformations(CircleCropTransformation())
-                    .allowHardware(false)
-                    .build()
-                val result = (loader.execute(request) as? SuccessResult)?.drawable
-                if (result != null) {
-                    BitmapDescriptorFactory.fromBitmap(result.toBitmap())
-                } else {
-                    defaultLocationIcon()
-                }
-            } catch (_: Exception) {
-                defaultLocationIcon()
-            }
-        } else {
-            defaultLocationIcon()
-        }
-    }
 
-    private fun defaultLocationIcon(): com.amap.api.maps.model.BitmapDescriptor {
-        val size = dpToPx(48)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#4285F4")
-            style = Paint.Style.FILL
-        }
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint)
-
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = dpToPx(3).toFloat()
-        }
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f - dpToPx(1.5f), borderPaint)
-
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = dpToPx(20).toFloat()
-            textAlign = Paint.Align.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        val nickname = userPrefs.nickname
-        val initial = nickname.firstOrNull()?.uppercaseChar() ?: '?'
-        val textY = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
-        canvas.drawText(initial.toString(), size / 2f, textY, textPaint)
-
-        return BitmapDescriptorFactory.fromBitmap(bitmap)
-    }
-
-    private fun Bitmap.toBitmap(): Bitmap {
-        if (this is BitmapDrawable) return bitmap
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        setBounds(0, 0, canvas.width, canvas.height)
-        draw(canvas)
-        return bitmap
-    }
-
-    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 
     private fun centerOnMyLocation() {
         val map = aMap
@@ -923,6 +896,37 @@ class MapFragment : Fragment() {
             }
             ivBannerWeatherIcon.setImageResource(iconRes)
         }
+    }
+
+    // ── 地图主题切换 ──────────────────────────────────────────
+
+    private fun showMapThemeSelector() {
+        val currentTheme = viewModel.currentTheme.value
+        val themes = MapThemeType.entries.map { type ->
+            MapThemeInfo(type, type == currentTheme)
+        }
+
+        val view = layoutInflater.inflate(com.example.guet_map.R.layout.dialog_map_theme_selector, null)
+        val recyclerView = view.findViewById<androidx.recyclerview.widget.RecyclerView>(com.example.guet_map.R.id.rvMapThemes)
+        
+        val adapter = MapThemeAdapter(themes) { themeInfo ->
+            viewModel.changeMapTheme(themeInfo.type)
+            themeDialog?.dismiss()
+        }
+        
+        recyclerView.adapter = adapter
+
+        themeDialog = androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setView(view)
+            .setCancelable(true)
+            .create()
+        
+        themeDialog?.show()
+    }
+
+    private fun applyMapTheme(theme: MapThemeType) {
+        val map = aMap ?: return
+        map.mapType = theme.mapType
     }
 
     companion object

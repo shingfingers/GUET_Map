@@ -5,8 +5,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"
-        tools:node="remove" />
     <uses-permission android:name="android.permission.CAMERA" />
 
     <uses-feature
@@ -41,7 +39,7 @@
         <!-- 高德地图 API Key -->
         <meta-data
             android:name="com.amap.api.v2.apikey"
-            android:value="c2f63f64da793bcba817e0e3767603dc" />
+            android:value="b9d865a24e2410d8684f3d86d3b133fb" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -51,4 +51,9 @@ sealed class MapUiEvent {
     data class ShowLocationAccuracy(
         val accuracyMeters: Float
     ) : MapUiEvent()
+
+    /** 地图主题切换 */
+    data class MapThemeChanged(
+        val theme: com.example.guet_map.ui.map.model.MapThemeType
+    ) : MapUiEvent()
 }

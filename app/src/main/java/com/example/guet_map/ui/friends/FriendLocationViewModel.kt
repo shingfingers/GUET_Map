@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import javax.inject.Inject
 
 data class FriendLocationUiState(
@@ -27,9 +28,13 @@ class FriendLocationViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(FriendLocationUiState())
     val uiState: StateFlow<FriendLocationUiState> = _uiState.asStateFlow()
+    
+    private var isRefreshing = false
 
     init {
         loadData()
+        // 定时刷新好友位置（每5秒）
+        startLocationRefresh()
     }
 
     fun loadData() {
@@ -84,12 +89,57 @@ class FriendLocationViewModel @Inject constructor(
                 when (resource) {
                     is Resource.Success -> {
                         _uiState.value = _uiState.value.copy(message = "位置已更新")
+                        // 更新位置后立即刷新好友位置
+                        refreshFriendLocations()
                     }
                     is Resource.Error -> {
                         _uiState.value = _uiState.value.copy(message = resource.message)
                     }
                     is Resource.Loading -> {}
                 }
+            }
+        }
+    }
+    
+    /**
+     * 定时刷新好友位置
+     */
+    private fun startLocationRefresh() {
+        viewModelScope.launch {
+            while (true) {
+                delay(5000) // 每5秒刷新一次
+                if (!isRefreshing) {
+                    refreshFriendLocations()
+                }
+            }
+        }
+    }
+    
+    /**
+     * 刷新好友位置
+     */
+    private fun refreshFriendLocations() {
+        isRefreshing = true
+        viewModelScope.launch {
+            try {
+                socialRepository.getFriendLocations().collect { resource ->
+                    when (resource) {
+                        is Resource.Success -> {
+                            val locationMap = resource.data.associateBy { it.userId }
+                            _uiState.value = _uiState.value.copy(
+                                friendLocations = locationMap
+                            )
+                        }
+                        is Resource.Error -> {
+                            // 静默失败，不显示错误
+                        }
+                        is Resource.Loading -> {}
+                    }
+                }
+            } catch (_: Exception) {
+                // 忽略异常
+            } finally {
+                isRefreshing = false
             }
         }
     }

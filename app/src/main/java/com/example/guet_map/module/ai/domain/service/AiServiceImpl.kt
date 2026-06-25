@@ -186,7 +186,15 @@ class AiServiceImpl @Inject constructor(
                     request = request
                 )
                 if (!response.isSuccessful) {
-                    error("DeepSeek 请求失败：${response.code()}")
+                    val errorBody = response.errorBody()?.string()
+                    val errorMsg = when (response.code()) {
+                        401 -> "API Key 无效或已过期，请检查 DeepSeek API Key"
+                        402 -> "账户余额不足，请访问 https://platform.deepseek.com 充值"
+                        429 -> "请求过于频繁，请稍后再试"
+                        500, 502, 503 -> "DeepSeek 服务暂时不可用"
+                        else -> "DeepSeek 请求失败：${response.code()} ${response.message()}"
+                    }
+                    error("$errorMsg | 详情: $errorBody")
                 }
 
                 val body = response.body() ?: error("DeepSeek 返回为空")

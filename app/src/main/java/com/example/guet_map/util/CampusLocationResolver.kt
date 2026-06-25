@@ -9,16 +9,9 @@ import com.example.guet_map.model.Location
 object CampusLocationResolver {
 
     /**
-     * 使用 CampusBuildingCatalog 中的准确坐标覆盖 Location
+     * 保留高德 SDK 返回的精确坐标，不做覆盖
      */
-    fun preferAmapCoordinates(location: Location, pool: List<Location>): Location {
-        val entry = CampusBuildingCatalog.findEntryByAlias(location.name)
-        return if (entry != null && entry.matchesName(location.name)) {
-            CampusBuildingCatalog.locationFromEntry(entry)
-        } else {
-            location
-        }
-    }
+    fun preferAmapCoordinates(location: Location, pool: List<Location>): Location = location
 
     fun resolveForQuery(query: String, pool: List<Location>): Location? {
         val matched = CampusSearchMatcher.filterAndSort(pool, query, limit = 1).firstOrNull()

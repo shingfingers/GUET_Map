@@ -109,35 +109,23 @@ object CampusBuildingCatalog {
 
     /**
      * 合并高德POI数据和已知地点数据
-     * 关键：已知地点使用 CampusBuildingCatalog 中的准确坐标
+     * 关键：保留高德 SDK 返回的精确坐标，仅补充缺失的已知地点
      */
     fun mergeInto(existing: List<Location>): List<Location> {
         val amapPois = existing.filter { loc ->
             !CampusBuildingNumbers.shouldDropAmapTeachingPoi(loc.name)
-        }.toMutableList()
+        }
+        val result = amapPois.toMutableList()
 
-        // 用准确坐标覆盖已知地点的坐标
-        val result = amapPois.map { loc ->
-            val entry = findEntryByAlias(loc.name)
-            if (entry != null && entry.matchesName(loc.name)) {
-                // 使用准确坐标
-                locationFromEntry(entry)
-            } else {
-                loc
-            }
-        }.toMutableList()
-
-        // 添加缺失的已知地点
+        // 仅添加缺失的已知地点，不覆盖高德坐标
         for (entry in teachingBuildings) {
-            if (!entryAlreadyPresent(result, entry)) {
-                result.add(locationFromEntry(entry))
-            }
+            if (entryAlreadyPresent(result, entry)) continue
+            result.add(locationFromEntry(entry))
         }
 
         for (entry in extraCampusPlaces) {
-            if (!entryAlreadyPresent(result, entry)) {
-                result.add(locationFromEntry(entry))
-            }
+            if (entryAlreadyPresent(result, entry)) continue
+            result.add(locationFromEntry(entry))
         }
 
         return result.sortedBy { it.name }

@@ -49,6 +49,10 @@ class UserPrefs @Inject constructor(
         get() = prefs.getString(KEY_CHAT_SESSION_ID, "") ?: ""
         set(value) = prefs.edit().putString(KEY_CHAT_SESSION_ID, value).apply()
 
+    var mapTheme: String
+        get() = prefs.getString(KEY_MAP_THEME, "normal") ?: "normal"
+        set(value) = prefs.edit().putString(KEY_MAP_THEME, value).apply()
+
     fun addPoints(earned: Int) {
         points += earned
     }
@@ -78,6 +82,7 @@ class UserPrefs @Inject constructor(
         private const val KEY_USER_ID = "user_id"
         private const val KEY_AVATAR = "avatar"
         private const val KEY_CHAT_SESSION_ID = "chat_session_id"
+        private const val KEY_MAP_THEME = "map_theme"
         const val GUEST_USER_ID = "guest"
     }
 }

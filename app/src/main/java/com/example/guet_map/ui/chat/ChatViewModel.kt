@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import javax.inject.Inject
 
 data class ChatUiState(
@@ -41,6 +42,8 @@ class ChatViewModel @Inject constructor(
         val friendName = savedStateHandle.get<String>("friendName") ?: ""
         _uiState.value = _uiState.value.copy(friendId = friendId, friendName = friendName)
         loadMessages()
+        // 定时刷新消息（每3秒）
+        startMessageRefresh()
     }
 
     fun loadMessages() {
@@ -94,5 +97,45 @@ class ChatViewModel @Inject constructor(
 
     fun isOwnMessage(message: Message): Boolean {
         return message.senderId == currentUserId
+    }
+    
+    /**
+     * 定时刷新消息
+     */
+    private fun startMessageRefresh() {
+        viewModelScope.launch {
+            while (true) {
+                delay(3000) // 每3秒刷新一次
+                loadMessages()
+            }
+        }
+    }
+    
+    /**
+     * 标记消息为已读
+     */
+    fun markMessagesAsRead() {
+        val friendId = _uiState.value.friendId
+        if (friendId == 0L) return
+        
+        viewModelScope.launch {
+            try {
+                socialRepository.getMessages(friendId).collect { resource ->
+                    if (resource is Resource.Success) {
+                        // 获取未读消息并标记为已读
+                        val unreadMessages = resource.data.filter { 
+                            it.receiverId == currentUserId && !it.isRead 
+                        }
+                        
+                        if (unreadMessages.isNotEmpty()) {
+                            // TODO: 调用标记已读API（如果后端支持）
+                            // 目前只需加载消息即可
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // 静默失败
+            }
+        }
     }
 }

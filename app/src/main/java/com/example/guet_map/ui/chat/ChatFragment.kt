@@ -42,6 +42,8 @@ class ChatFragment : Fragment() {
         setupRecyclerView()
         setupInput()
         observeState()
+        // 标记消息为已读
+        viewModel.markMessagesAsRead()
     }
 
     private fun setupToolbar() {

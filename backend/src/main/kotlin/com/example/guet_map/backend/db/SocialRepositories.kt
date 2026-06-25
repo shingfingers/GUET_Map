@@ -202,7 +202,15 @@ class MessageRepository {
                 it[Messages.isRead] = false
                 it[Messages.createdAt] = nowStr
             } get Messages.id
-            Message(id = id, senderId = senderId, receiverId = receiverId, content = content, type = type)
+            Message(
+                id = id,
+                senderId = senderId,
+                receiverId = receiverId,
+                content = content,
+                type = type,
+                isRead = false,
+                createdAt = nowStr
+            )
         }
     }
 
@@ -222,7 +230,7 @@ class MessageRepository {
                         content = row[Messages.content],
                         type = row[Messages.type],
                         isRead = row[Messages.isRead],
-                        createdAt = parseDateTime(row[Messages.createdAt])
+                        createdAt = row[Messages.createdAt]  // 直接使用字符串
                     )
                 }
         }

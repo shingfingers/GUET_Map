@@ -76,7 +76,7 @@ data class Message(
     val content: String,
     val type: String = "text",
     val isRead: Boolean = false,
-    val createdAt: LocalDateTime = LocalDateTime.now()
+    val createdAt: String = ""  // 使用字符串而非 LocalDateTime，避免 Gson 序列化问题
 )
 
 // ========== 朋友圈帖子模型 ==========

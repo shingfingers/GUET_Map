@@ -202,6 +202,22 @@
         app:borderWidth="0dp"
         app:elevation="4dp" />
 
+    <!-- 地图主题切换按钮 -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabMapTheme"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="start|bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="80dp"
+        android:contentDescription="地图主题"
+        app:fabCustomSize="48dp"
+        app:srcCompat="@drawable/ic_map_theme"
+        app:backgroundTint="?attr/colorSurface"
+        app:tint="@color/primary"
+        app:borderWidth="0dp"
+        app:elevation="4dp" />
+
     <!-- AI 助手按钮 -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fabAiChat"
