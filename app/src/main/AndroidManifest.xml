@@ -39,7 +39,7 @@
         <!-- 高德地图 API Key -->
         <meta-data
             android:name="com.amap.api.v2.apikey"
-            android:value="b9d865a24e2410d8684f3d86d3b133fb" />
+            android:value="b9d833fb" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
