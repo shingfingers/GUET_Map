@@ -21,7 +21,7 @@ android {
         buildConfigField("String", "BASE_URL", "\"https://bonus-blurred-hypnosis.ngrok-free.dev/\"")
         // TODO: 替换为你自己的 DeepSeek API Key
         // 访问 https://platform.deepseek.com 获取
-        buildConfigField("String", "DEEPSEEK_API_KEY", "\"sk-e038262627654331a61db169264efa0b\"")
+        buildConfigField("String", "DEEPSEEK_API_KEY", "\"\"")
 
         ndk {
             // 高德 3D SDK 仅提供 ARM 原生库，x86_64 模拟器通过 libndk_translation 翻译运行
